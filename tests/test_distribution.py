@@ -5,7 +5,6 @@ import sys
 import venv
 from pathlib import Path
 
-
 PUBLIC_IMPORTS = {
     "AuthorityLevel",
     "CoverageContract",
