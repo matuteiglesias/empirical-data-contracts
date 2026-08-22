@@ -1,0 +1,8 @@
+include README.md
+include RELEASE.md
+include pyproject.toml
+recursive-include src/empirical_contracts *.py
+prune tests
+prune .github
+exclude AGENTS.md
+global-exclude __pycache__ *.py[cod]
