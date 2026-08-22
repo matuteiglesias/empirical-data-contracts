@@ -6,14 +6,25 @@ build-backend = "setuptools.build_meta"
 name = "empirical-data-contracts"
 version = "0.1.0"
 description = "Shared contracts for reproducible empirical data systems"
+readme = "README.md"
 requires-python = ">=3.10"
 dependencies = ["pydantic>=2.7,<3"]
 
+[project.urls]
+Homepage = "https://github.com/matuteiglesias/empirical-data-contracts"
+Repository = "https://github.com/matuteiglesias/empirical-data-contracts"
+Issues = "https://github.com/matuteiglesias/empirical-data-contracts/issues"
+
 [project.optional-dependencies]
-dev = ["pytest>=8", "ruff>=0.6"]
+dev = ["build>=1.2,<2", "pytest>=8", "ruff>=0.6"]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+include-package-data = false
 
 [tool.setuptools.packages.find]
 where = ["src"]
+include = ["empirical_contracts*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -1,0 +1,176 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version:
+          - "3.10"
+          - "3.12"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install package and development dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install ".[dev]"
+
+      - name: Verify installed package import
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import sysconfig
+          import empirical_contracts
+
+          package_path = Path(empirical_contracts.__file__).resolve()
+          purelib = Path(sysconfig.get_paths()["purelib"]).resolve()
+          print(f"empirical_contracts imported from {package_path}")
+          assert package_path.is_relative_to(purelib), (package_path, purelib)
+          PY
+
+      - name: Run tests
+        run: python -m pytest -q
+
+      - name: Run Ruff
+        run: ruff check .
+
+  package-build:
+    name: Build and install distributions
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install build frontend
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install build
+
+      - name: Build wheel and source distribution
+        run: python -m build
+
+      - name: Inspect distribution metadata and contents
+        run: |
+          python - <<'PY'
+          from email.parser import Parser
+          from pathlib import Path
+          import tarfile
+          from zipfile import ZipFile
+
+          dist = Path("dist")
+          wheels = list(dist.glob("*.whl"))
+          sdists = list(dist.glob("*.tar.gz"))
+          assert len(wheels) == 1, wheels
+          assert len(sdists) == 1, sdists
+
+          with ZipFile(wheels[0]) as archive:
+              wheel_members = archive.namelist()
+              metadata_name = next(
+                  name for name in wheel_members if name.endswith(".dist-info/METADATA")
+              )
+              metadata_text = archive.read(metadata_name).decode()
+
+          print(metadata_text)
+          print("Wheel members:")
+          print("\n".join(wheel_members))
+
+          metadata = Parser().parsestr(metadata_text)
+          assert metadata["Name"] == "empirical-data-contracts"
+          assert metadata["Version"] == "0.1.0"
+          assert metadata["Requires-Python"] == ">=3.10"
+          assert any(
+              requirement.startswith("pydantic")
+              for requirement in metadata.get_all("Requires-Dist", [])
+          )
+          project_urls = dict(
+              value.split(", ", 1) for value in metadata.get_all("Project-URL", [])
+          )
+          expected_url = "https://github.com/matuteiglesias/empirical-data-contracts"
+          assert project_urls["Homepage"] == expected_url
+          assert project_urls["Repository"] == expected_url
+
+          unexpected_wheel_members = [
+              name
+              for name in wheel_members
+              if not (
+                  name.startswith("empirical_contracts/")
+                  or ".dist-info/" in name
+              )
+          ]
+          assert not unexpected_wheel_members, unexpected_wheel_members
+
+          with tarfile.open(sdists[0], "r:gz") as archive:
+              sdist_members = [member.name for member in archive.getmembers()]
+              pkg_info_name = next(
+                  name for name in sdist_members if name.endswith("/PKG-INFO")
+              )
+              pkg_info = archive.extractfile(pkg_info_name)
+              assert pkg_info is not None
+              sdist_metadata_text = pkg_info.read().decode()
+
+          print(sdist_metadata_text)
+          print("Source distribution members:")
+          print("\n".join(sdist_members))
+
+          forbidden = []
+          for name in sdist_members:
+              parts = Path(name).parts[1:]
+              if not parts:
+                  continue
+              if parts[0] in {".github", "tests", "AGENTS.md"}:
+                  forbidden.append(name)
+          assert not forbidden, forbidden
+          PY
+
+      - name: Install wheel in a fresh environment
+        run: |
+          WHEEL=$(find dist -maxdepth 1 -name '*.whl' -print -quit)
+          python -m venv /tmp/empirical-contracts-wheel
+          /tmp/empirical-contracts-wheel/bin/python -m pip install --upgrade pip
+          /tmp/empirical-contracts-wheel/bin/python -m pip install "$WHEEL"
+          cd /tmp
+          /tmp/empirical-contracts-wheel/bin/python - <<'PY'
+          import empirical_contracts
+
+          contract = empirical_contracts.SourceFileRef(
+              path="source.bin",
+              sha256="0" * 64,
+              size_bytes=1,
+          )
+          payload = contract.model_dump_json()
+          restored = empirical_contracts.SourceFileRef.model_validate_json(payload)
+          assert restored == contract
+          print(empirical_contracts.__file__)
+          PY
+
+      - name: Retain CI build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-python-package-distributions
+          path: dist/
+          retention-days: 7
