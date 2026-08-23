@@ -8,10 +8,19 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 
 class StrictModel(BaseModel):
+    """Base class for immutable contracts that reject undeclared fields."""
+
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
 class AuthorityLevel(str, Enum):
+    """Degree of authority associated with a dataset or coverage declaration.
+
+    Values progress from inherited legacy material (``L0``) to output that has
+    received explicit research validation (``L4``). The short values are the
+    stable serialized representation.
+    """
+
     L0_LEGACY_INHERITED = "L0"
     L1_NORMALIZED = "L1"
     L2_DERIVED = "L2"
@@ -20,6 +29,8 @@ class AuthorityLevel(str, Enum):
 
 
 class DataLayer(str, Enum):
+    """A dataset's role in a conventional layered data architecture."""
+
     BRONZE = "bronze"
     SILVER = "silver"
     GOLD = "gold"
@@ -27,6 +38,12 @@ class DataLayer(str, Enum):
 
 
 class MeasurementStatus(str, Enum):
+    """How an individual measurement value came to be represented.
+
+    In particular, source absence and a verified structural zero are distinct
+    states. Consumers must not infer one from the other.
+    """
+
     OBSERVED = "observed"
     AGGREGATED_FROM_OBSERVED = "aggregated_from_observed"
     INTERPOLATED = "interpolated"
@@ -40,12 +57,24 @@ class MeasurementStatus(str, Enum):
 
 
 class SourceFileRef(StrictModel):
+    """Integrity metadata for one file belonging to a source snapshot.
+
+    ``sha256`` must be a lowercase, 64-character hexadecimal digest and
+    ``size_bytes`` must be nonnegative.
+    """
+
     path: str
     sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     size_bytes: int = Field(ge=0)
 
 
 class SourceSnapshotRef(StrictModel):
+    """A reproducible reference to a particular release of an external source.
+
+    A snapshot contains at least one file. ``origin`` can record where it came
+    from without implying that the package has verified the source's coverage.
+    """
+
     source: str
     release: str
     snapshot_id: str
@@ -63,6 +92,12 @@ class SourceSnapshotRef(StrictModel):
 
 
 class GrainSpec(StrictModel):
+    """Fields that uniquely identify observations at a dataset's declared grain.
+
+    Keys are ordered, nonempty, and unique. Their names describe identity only;
+    this contract does not prescribe a persisted table schema.
+    """
+
     keys: tuple[str, ...]
 
     @field_validator("keys")
@@ -76,6 +111,8 @@ class GrainSpec(StrictModel):
 
 
 class GeographySpec(StrictModel):
+    """Identity of the provider, release, scheme, and level of a geography."""
+
     provider: str
     version: str
     scheme: str
@@ -84,21 +121,34 @@ class GeographySpec(StrictModel):
 
     @property
     def id(self) -> str:
+        """Return the stable colon-delimited geography identifier."""
+
         suffix = f":{self.scheme_version}" if self.scheme_version else ""
         return f"{self.provider}:{self.version}:{self.scheme}:{self.level}{suffix}"
 
 
 class PeriodScheme(StrictModel):
+    """A repeating year-based period scheme anchored to a calendar year."""
+
     width_years: int = Field(gt=0)
     anchor_year: int
     calendar: Literal["gregorian_year"] = "gregorian_year"
 
     @property
     def id(self) -> str:
+        """Return the stable identifier for the period width and anchor year."""
+
         return f"T{self.width_years}_y{self.anchor_year}"
 
 
 class CoverageContract(StrictModel):
+    """Declared spatial, temporal, and absent-observation semantics.
+
+    Coverage is descriptive rather than inferred. The default absent-row
+    semantics are ``unknown``; zero is valid only when the producer explicitly
+    declares ``zero_within_verified_coverage``.
+    """
+
     geography_scope: str
     temporal_start: date | None = None
     temporal_end: date | None = None
@@ -117,6 +167,13 @@ class CoverageContract(StrictModel):
 
 
 class DatasetRef(StrictModel):
+    """Versioned identity and structural metadata for a produced dataset.
+
+    ``version`` identifies the dataset release, while ``schema_version`` tracks
+    its persisted schema independently. ``content_sha256`` is optional, but if
+    supplied it must be a lowercase SHA-256 digest.
+    """
+
     dataset_id: str
     version: str
     schema_version: str
@@ -129,6 +186,13 @@ class DatasetRef(StrictModel):
 
 
 class MeasurementContract(StrictModel):
+    """The common envelope describing a measurement derived from a dataset.
+
+    ``parameters`` is the explicit extension field for producer-specific
+    settings. It should not be used to promote a source-specific ontology into
+    the package's shared top-level contract.
+    """
+
     measure_id: str
     description: str
     source_dataset: DatasetRef
@@ -142,6 +206,8 @@ class MeasurementContract(StrictModel):
 
 
 class QAResult(StrictModel):
+    """Outcome and scalar metrics from one named quality-assurance check."""
+
     check_id: str
     state: Literal["GREEN", "YELLOW", "RED"]
     message: str
@@ -149,6 +215,12 @@ class QAResult(StrictModel):
 
 
 class RunManifest(StrictModel):
+    """Provenance record connecting a software run to its inputs and outputs.
+
+    ``package_version`` describes the producing software and is separate from
+    source releases, dataset versions, and persisted schema versions.
+    """
+
     run_id: str
     package: str
     package_version: str
