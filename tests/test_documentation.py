@@ -20,4 +20,5 @@ def test_readme_python_examples_execute():
     examples = [block.split("```", 1)[0] for block in blocks]
 
     assert examples
-    exec("\n".join(examples), {"__name__": "__readme_examples__"})
+    # README examples are repository-controlled test inputs, not untrusted data.
+    exec("\n".join(examples), {"__name__": "__readme_examples__"})  # noqa: S102
